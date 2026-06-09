@@ -61,7 +61,7 @@ const CommunicationLogs = () => {
         ) : (
           <div className="relative border-l-2 border-slate-100 ml-4 space-y-8 pb-4">
             {logs.map((log, idx) => (
-              <div key={log._id} className="relative pl-8">
+              <div key={log.id || log._id || idx} className="relative pl-8">
                 {/* Timeline Dot */}
                 <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white ${log.status === 'Success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
                 

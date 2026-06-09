@@ -43,7 +43,7 @@ _graph_builder = StateGraph(BadDebtState)
 
 # Register nodes
 _graph_builder.add_node("account_screening", account_screening_node)
-_graph_builder.add_node("contact_strategy", contact_strategy_node)
+_graph_builder.add_node("contact_strategy_agent", contact_strategy_node)
 _graph_builder.add_node("outreach_automation", outreach_automation_node)
 _graph_builder.add_node("payment_plan", payment_plan_node)
 _graph_builder.add_node("human_collection", human_collection_node)
@@ -54,8 +54,8 @@ _graph_builder.add_node("compliance_reporting", compliance_reporting_node)
 _graph_builder.set_entry_point("account_screening")
 
 # Fixed edges
-_graph_builder.add_edge("account_screening", "contact_strategy")
-_graph_builder.add_edge("contact_strategy", "outreach_automation")
+_graph_builder.add_edge("account_screening", "contact_strategy_agent")
+_graph_builder.add_edge("contact_strategy_agent", "outreach_automation")
 
 # Conditional edge: after outreach → payment_plan OR status_update
 _graph_builder.add_conditional_edges(

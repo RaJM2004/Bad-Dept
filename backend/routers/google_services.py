@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import Optional
 from middleware.auth import get_current_user
@@ -123,3 +123,92 @@ async def read_google_sheet(body: ReadSheetRequest, current_user: dict = Depends
         return {"values": result.get("values", []), "range": result.get("range")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read sheet: {str(e)}")
+
+
+@router.get("/inbox")
+async def get_gmail_inbox(
+    label: str = Query("INBOX"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Fetch Gmail inbox messages for the current user.
+    Returns real Gmail data if credentials are set, otherwise mock emails.
+    """
+    db = get_db()
+    user = await db["users"].find_one({"_id": ObjectId(current_user["id"])})
+    has_creds = user and user.get("accessToken")
+
+    if has_creds:
+        try:
+            from config.google_client import build_credentials, get_gmail_service
+
+            creds = build_credentials(user["accessToken"], user.get("refreshToken"))
+            gmail = get_gmail_service(creds)
+
+            messages_resp = gmail.users().messages().list(
+                userId="me", labelIds=[label], maxResults=20
+            ).execute()
+            messages = messages_resp.get("messages", [])
+
+            emails = []
+            for msg in messages[:15]:
+                detail = gmail.users().messages().get(
+                    userId="me", messageId=msg["id"], format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"]
+                ).execute()
+                headers = {h["name"]: h["value"] for h in detail.get("payload", {}).get("headers", [])}
+                emails.append({
+                    "id": detail["id"],
+                    "from": headers.get("From", "Unknown Sender"),
+                    "subject": headers.get("Subject", "(No Subject)"),
+                    "snippet": detail.get("snippet", ""),
+                    "date": headers.get("Date", ""),
+                    "isUnread": "UNREAD" in detail.get("labelIds", []),
+                    "body": "",
+                })
+            return {"emails": emails, "isRealData": True}
+        except Exception as e:
+            # Fall through to mock if real fails
+            pass
+
+    # ── Mock emails ──────────────────────────────────────────────────────
+    from datetime import datetime, timedelta
+    mock = [
+        {
+            "id": f"mock_{i}",
+            "from": f"{name} <{email}>",
+            "subject": subject,
+            "snippet": snippet,
+            "date": (datetime.utcnow() - timedelta(days=i)).isoformat(),
+            "isUnread": i < 3,
+            "body": f"<p>{snippet}</p>",
+        }
+        for i, (name, email, subject, snippet) in enumerate([
+            ("John Doe", "john.doe@example.com", "Regarding my overdue balance",
+             "I would like to discuss a payment plan for my outstanding amount..."),
+            ("Sarah Jenkins", "sarah.j@example.com", "Payment plan request",
+             "I lost my job last month and cannot make the full payment right now..."),
+            ("Robert Chen", "robert.chen@example.com", "Dispute on account",
+             "I believe there is an error in my account balance. The amount shown..."),
+            ("Emma Watson", "emma.w@example.com", "Payment confirmation",
+             "I have transferred the full outstanding amount. Please find the reference..."),
+            ("Michael Scott", "michael.s@example.com", "Need more time",
+             "Due to a medical emergency I am requesting a 30-day extension..."),
+        ])
+    ]
+    return {"emails": mock, "isRealData": False}
+
+
+class ImportSheetRequest(BaseModel):
+    spreadsheetId: str
+
+
+@router.post("/import")
+async def import_from_sheet(body: ImportSheetRequest, current_user: dict = Depends(get_current_user)):
+    """Import customers from a Google Sheet (stub — mocks success for demo)."""
+    return {
+        "importedCount": 5,
+        "isRealImport": False,
+        "message": "Demo: Connect Google Sheets API to import real data.",
+    }
+
