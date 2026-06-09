@@ -1,24 +1,71 @@
-# AI Multi-Agent Bad Debt Collection Platform Backend
+# Bad Debt Collection Platform – Python Backend
 
-This backend powers the AI-driven debt collection platform using Node.js, Express, MongoDB, and Groq (Llama 3.3).
+FastAPI + LangGraph backend for the AI-powered bad debt collection platform.
+
+## Tech Stack
+- **FastAPI** — async REST API (replaces Express)
+- **Motor** — async MongoDB driver (replaces Mongoose)
+- **LangGraph** — multi-agent stateful pipeline (7 nodes)
+- **Groq** — LLM inference (llama-3.3-70b-versatile)
+- **Google APIs** — Gmail, Calendar, Sheets, Drive, Slides, Docs
+
+## Agent Pipeline
+
+```
+Account Screening → Contact Strategy → Outreach Automation
+                                              ↓
+                              ┌───────────────────────────┐
+                              │ should_offer_payment_plan? │
+                              │ Yes → Payment Plan Agent   │
+                              │       → Human Collection   │
+                              └───────────────────────────┘
+                                              ↓
+                              Status Update → Compliance & Reporting
+```
 
 ## Setup
-1. Run `npm install`
-2. Create a `.env` file with `PORT=5000`, `MONGO_URI`, `GROQ_API_KEY`, `JWT_SECRET`.
-3. Run `npm run dev` to start. The database will seed automatically on first boot.
 
-## The 8-Agent Swarm
-This platform utilizes a powerful multi-agent architecture for end-to-end autonomous collections.
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-1. **Intent Detection Agent:** Analyzes customer messages to classify their goal (e.g., Payment Promise, Dispute, Refusal).
-2. **Account Lookup Agent:** securely fetches and summarizes the customer's financial standing and risk score.
-3. **Sentiment & Escalation Agent:** Gauges emotional tone (Angry, Negative, Positive) and triggers human escalation protocols if it detects legal threats or abuse.
-4. **Resolution Generator Agent:** Calculates the optimal financial counter-offer (Full Payment, EMI Plan, Settlement).
-5. **Repayment Plans Agent:** Negotiates exact monthly EMI terms based on customer-proposed amounts and hardship reasons.
-6. **Dispute Management Agent:** Analyzes dispute claims, asks for evidence, or escalates severe legal disputes.
-7. **Analytics and Report Agent:** Synthesizes platform metrics into a high-level executive summary using natural language.
-8. **Communication Log Agent:** Orchestrates the flow and drafts empathetic, professional emails back to the customer.
+# Run the server (development)
+uvicorn main:app --reload --port 8000
 
-## API Testing
-You can run the API tests to validate the agents:
-`npx ts-node tests/api.test.ts`
+# Run in production
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+## Environment Variables
+
+Copy `.env` and fill in your values:
+```
+MONGO_URI=mongodb+srv://...
+JWT_SECRET=your-secret
+GROQ_API_KEY=gsk_...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /api/auth/login | Local login |
+| POST | /api/auth/google | Google OAuth login |
+| GET | /api/customers | List all customers |
+| POST | /api/customers | Create customer |
+| POST | **`/api/agents/run-pipeline`** | **🚀 Run full LangGraph pipeline** |
+| POST | /api/agents/intent | Intent detection |
+| POST | /api/agents/sentiment | Sentiment analysis |
+| POST | /api/agents/resolution | Resolution recommendation |
+| GET | /api/agents/logs | Agent execution logs |
+| GET | /api/dashboard | Dashboard stats |
+
+## Interactive Docs
+
+Visit http://localhost:8000/docs for the Swagger UI.
+
+## Default Test Credentials
+- **Admin:** `admin@example.com` / `admin123`
+- **Officer:** `officer@example.com` / `officer123`
