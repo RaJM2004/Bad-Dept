@@ -11,6 +11,9 @@ import ComingSoon from './pages/ComingSoon';
 import Inbox from './pages/Inbox';
 import EscalationQueue from './pages/EscalationQueue';
 import CommunicationLogs from './pages/CommunicationLogs';
+import Reports from './pages/Reports';
+import RepaymentPlans from './pages/RepaymentPlans';
+import DisputeManagement from './pages/DisputeManagement';
 
 function App() {
   return (
@@ -27,6 +30,9 @@ function App() {
               <Route path="customers" element={<Customers />} />
               <Route path="escalation-queue" element={<EscalationQueue />} />
               <Route path="communication-logs" element={<CommunicationLogs />} />
+              <Route path="repayment-plans" element={<RepaymentPlans />} />
+              <Route path="dispute-management" element={<DisputeManagement />} />
+              <Route path="reports" element={<Reports />} />
               <Route path="coming-soon" element={<ComingSoon />} />
             </Route>
           </Routes>

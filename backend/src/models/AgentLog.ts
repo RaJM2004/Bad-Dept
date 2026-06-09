@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IAgentLog extends Document {
-  agentName: 'Intent Detection' | 'Account Lookup' | 'Resolution Generator' | 'Sentiment & Escalation' | 'Communication Log';
+  agentName: 'Intent Detection' | 'Account Lookup' | 'Resolution Generator' | 'Sentiment & Escalation' | 'Communication Log' | 'Repayment Plans' | 'Dispute Management' | 'Analytics & Report';
   status: 'Success' | 'Error';
   requestDetails: any;
   responseDetails: any;
@@ -14,7 +14,7 @@ const AgentLogSchema: Schema = new Schema(
   {
     agentName: {
       type: String,
-      enum: ['Intent Detection', 'Account Lookup', 'Resolution Generator', 'Sentiment & Escalation', 'Communication Log'],
+      enum: ['Intent Detection', 'Account Lookup', 'Resolution Generator', 'Sentiment & Escalation', 'Communication Log', 'Repayment Plans', 'Dispute Management', 'Analytics & Report'],
       required: true,
       index: true,
     },

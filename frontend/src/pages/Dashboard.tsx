@@ -6,20 +6,26 @@ import api from '../lib/axios';
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<any>(null);
+  const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
-        const res = await api.get('/dashboard/metrics');
-        setMetrics(res.data.kpis);
+        const resMetrics = await api.get('/dashboard/metrics');
+        setMetrics(resMetrics.data.kpis);
+
+        const resLogs = await api.get('/agents/logs');
+        setLogs(resLogs.data.logs || []);
       } catch (err) {
-        console.error('Failed to load metrics:', err);
+        console.error('Failed to load dashboard data:', err);
       } finally {
         setLoading(false);
       }
     };
     fetchMetrics();
+    const interval = setInterval(fetchMetrics, 10000); // refresh every 10s
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -134,33 +140,36 @@ const Dashboard: React.FC = () => {
           <h3 className="text-xl font-bold text-gen-textDark mb-6">Ongoing Recoveries</h3>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-gen-bg/50 rounded-2xl">
-              <div className="flex items-center gap-4">
-                <div className="w-2 h-2 rounded-full bg-orange-400"></div>
-                <span className="font-semibold text-gen-textDark">Account Lookup - Customer #C1920</span>
+            {logs.slice(0, 5).map((log, i) => (
+              <div key={i} className="flex items-center justify-between p-4 bg-gen-bg/50 rounded-2xl">
+                <div className="flex items-center gap-4">
+                  <div className={`w-2 h-2 rounded-full ${log.status === 'Success' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span className="font-semibold text-gen-textDark truncate max-w-[300px]">
+                    {log.agentName}
+                    {log.requestDetails?.customerId && ` - Customer #${log.requestDetails.customerId.substring(log.requestDetails.customerId.length - 4)}`}
+                  </span>
+                </div>
+                <span className="text-sm font-mono text-gen-textLight shrink-0">
+                  {new Date(log.createdAt).toLocaleTimeString()}
+                </span>
               </div>
-              <span className="text-sm font-mono text-gen-textLight">03:12 PM</span>
-            </div>
-            
-            <div className="flex items-center justify-between p-4 bg-gen-bg/50 rounded-2xl">
-              <div className="flex items-center gap-4">
-                <div className="w-2 h-2 rounded-full bg-gen-button"></div>
-                <span className="font-semibold text-gen-textDark">Intent Detection - Email Parsing</span>
-              </div>
-              <span className="text-sm font-mono text-gen-textLight">03:05 PM</span>
-            </div>
+            ))}
+            {logs.length === 0 && (
+              <p className="text-gen-textLight text-center py-4">No recent recoveries.</p>
+            )}
           </div>
         </div>
         
-        <div className="bg-white rounded-3xl p-8 shadow-sm min-h-[300px]">
+        <div className="bg-white rounded-3xl p-8 shadow-sm min-h-[300px] flex flex-col">
           <h3 className="text-sm font-bold tracking-wider text-gen-textDark uppercase mb-6">Live System Feed</h3>
           
-          <div className="bg-[#1a2b3c] rounded-2xl p-4 h-[200px] font-mono text-xs text-green-400 overflow-y-auto">
-            <p>[11:17:14] AGENT_LOG: Sentiment analyzed</p>
-            <p>[11:16:14] SYSTEM: Login successful</p>
-            <p className="text-gray-400">[11:15:00] DB_SYNC: 14 accounts updated</p>
-            <p>[11:14:22] AGENT_LOG: Resolution generated</p>
-            <p>[11:10:05] EMAIL_SENT: Customer #C1920</p>
+          <div className="bg-[#1a2b3c] rounded-2xl p-4 flex-1 min-h-[200px] max-h-[300px] font-mono text-xs text-green-400 overflow-y-auto space-y-1">
+            <p className="text-blue-300">[{new Date().toLocaleTimeString()}] SYSTEM: Listening for events...</p>
+            {logs.slice(0, 10).map((log, i) => (
+              <p key={i} className={log.status === 'Error' ? 'text-red-400' : ''}>
+                [{new Date(log.createdAt).toLocaleTimeString()}] {log.agentName.toUpperCase().replace(/\s/g, '_')}: {log.status} {log.durationMs}ms
+              </p>
+            ))}
           </div>
         </div>
       </div>

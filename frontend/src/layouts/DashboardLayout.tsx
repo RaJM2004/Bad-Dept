@@ -1,11 +1,12 @@
 import React from 'react';
 import { Outlet, Navigate, NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  Menu, Hourglass, Circle, User, LayoutDashboard, Microscope, 
-  Box, Target, Link, FlaskConical, LineChart, EyeOff, ClipboardCheck, 
-  Bot, Settings, LogOut, Mail
+import {
+  Menu, Hourglass, Circle, User, LayoutDashboard, 
+  Target, LineChart, EyeOff, ClipboardCheck, 
+  Bot, Settings, LogOut, Mail, Bell
 } from 'lucide-react';
+import api from '../lib/axios';
 
 const DashboardLayout: React.FC = () => {
   const { token, user, logout } = useAuth();
@@ -14,16 +15,32 @@ const DashboardLayout: React.FC = () => {
     return <Navigate to="/login" />;
   }
 
+  const [escalationsCount, setEscalationsCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const checkEscalations = async () => {
+      try {
+        const res = await api.get('/customers?status=Escalated');
+        setEscalationsCount(res.data.length);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    checkEscalations();
+    const interval = setInterval(checkEscalations, 30000); // Check every 30s
+    return () => clearInterval(interval);
+  }, []);
+
   const navLinks = [
     { name: 'Dashboard', icon: <LayoutDashboard size={18} />, path: '/dashboard' },
     { name: 'Inbox', icon: <Mail size={18} />, path: '/inbox' },
     { name: 'Customer Portfolios', icon: <User size={18} />, path: '/customers' },
     { name: 'AI Collection Agents', icon: <Bot size={18} />, path: '/agents' },
     { name: 'Communication Logs', icon: <Menu size={18} />, path: '/communication-logs' },
-    { name: 'Repayment Plans', icon: <ClipboardCheck size={18} />, path: '/coming-soon' },
-    { name: 'Dispute Management', icon: <EyeOff size={18} />, path: '/coming-soon' },
+    { name: 'Repayment Plans', icon: <ClipboardCheck size={18} />, path: '/repayment-plans' },
+    { name: 'Dispute Management', icon: <EyeOff size={18} />, path: '/dispute-management' },
     { name: 'Escalation Queue', icon: <Target size={18} />, path: '/escalation-queue' },
-    { name: 'Analytics & Reports', icon: <LineChart size={18} />, path: '/coming-soon' },
+    { name: 'Analytics & Reports', icon: <LineChart size={18} />, path: '/reports' },
   ];
 
   return (
@@ -58,6 +75,17 @@ const DashboardLayout: React.FC = () => {
           <div className="hidden lg:block text-xs font-mono font-medium text-gen-textDark">
             {new Date().toLocaleTimeString()}
           </div>
+
+          {/* Notifications */}
+          <NavLink to="/escalation-queue" className="relative p-2 text-gen-textDark hover:bg-black/5 rounded-full transition-colors flex items-center justify-center">
+            <Bell size={20} />
+            {escalationsCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 border border-white"></span>
+              </span>
+            )}
+          </NavLink>
 
           {/* Profile */}
           <div className="flex items-center gap-2 bg-gen-button/10 text-gen-button px-3 py-1.5 rounded-full text-sm font-bold">

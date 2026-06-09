@@ -7,6 +7,9 @@ import {
   logAndProcessCommunication,
   getAgentLogs,
   generateEmail,
+  negotiateRepaymentPlan,
+  handleDispute,
+  generateAIAnalytics,
 } from '../controllers/agentController';
 import { authenticateJWT } from '../middleware/auth';
 
@@ -41,5 +44,17 @@ router.post('/log', logAndProcessCommunication as any);
 // @route   GET /agents/logs
 // @desc    Get execution logs for all agents
 router.get('/logs', getAgentLogs as any);
+
+// @route   POST /agents/repayment-plan
+// @desc    Run Repayment Plans Agent
+router.post('/repayment-plan', negotiateRepaymentPlan as any);
+
+// @route   POST /agents/dispute
+// @desc    Run Dispute Management Agent
+router.post('/dispute', handleDispute as any);
+
+// @route   POST /agents/analytics-report
+// @desc    Run Analytics and Report Agent
+router.post('/analytics-report', generateAIAnalytics as any);
 
 export default router;

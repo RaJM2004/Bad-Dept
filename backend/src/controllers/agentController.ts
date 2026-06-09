@@ -5,11 +5,12 @@ import Account from '../models/Account';
 import Communication from '../models/Communication';
 import AgentLog from '../models/AgentLog';
 import Escalation from '../models/Escalation';
+import PaymentPlan from '../models/PaymentPlan';
 import { AuthRequest } from '../middleware/auth';
 
 // Helper to log agent activities
 const saveAgentLog = async (
-  agentName: 'Intent Detection' | 'Account Lookup' | 'Resolution Generator' | 'Sentiment & Escalation' | 'Communication Log',
+  agentName: 'Intent Detection' | 'Account Lookup' | 'Resolution Generator' | 'Sentiment & Escalation' | 'Communication Log' | 'Repayment Plans' | 'Dispute Management' | 'Analytics & Report',
   status: 'Success' | 'Error',
   requestDetails: any,
   responseDetails: any,
@@ -700,6 +701,194 @@ Important Guidelines:
   } catch (error) {
     console.error('Generate email error:', error);
     return res.status(500).json({ message: 'Failed to generate email', error: (error as Error).message });
+  }
+};
+
+// 7. Repayment Plans Agent
+export const negotiateRepaymentPlan = async (req: AuthRequest, res: Response) => {
+  const { customerId, proposedAmount, hardshipReason } = req.body;
+  if (!customerId || !proposedAmount) {
+    return res.status(400).json({ message: 'Customer ID and proposed amount are required' });
+  }
+
+  const startTime = Date.now();
+  try {
+    const account = await Account.findOne({ customerId });
+    if (!account) throw new Error('Account not found');
+
+    let result;
+    if (isGroqEnabled()) {
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a Repayment Plans Agent. Evaluate if a customer's proposed monthly payment is acceptable based on their total outstanding amount.
+If the proposed amount can pay off the debt in 6 months or less, it's 'Accepted'. Otherwise, 'Counter Offer' with an amount that pays it off in 4 months.
+Respond ONLY in JSON format:
+{
+  "status": "Accepted" | "Counter Offer" | "Rejected",
+  "approvedMonthlyAmount": number,
+  "durationMonths": number,
+  "reasoning": "string"
+}`,
+          },
+          {
+            role: 'user',
+            content: `Outstanding: $${account.outstandingAmount}. Proposed Monthly: $${proposedAmount}. Hardship: ${hardshipReason || 'None'}`,
+          },
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      });
+      result = JSON.parse(chatCompletion.choices[0]?.message?.content || '{}');
+    } else {
+      // Mock Repayment
+      const minAcceptable = account.outstandingAmount / 6;
+      if (proposedAmount >= minAcceptable) {
+        result = { status: 'Accepted', approvedMonthlyAmount: proposedAmount, durationMonths: Math.ceil(account.outstandingAmount / proposedAmount), reasoning: 'Proposed amount is sufficient to clear debt within 6 months.' };
+      } else {
+        const counter = Math.ceil(account.outstandingAmount / 4);
+        result = { status: 'Counter Offer', approvedMonthlyAmount: counter, durationMonths: 4, reasoning: 'Proposed amount is too low. Proposing a 4-month plan.' };
+      }
+    }
+
+    // NEW LOGIC: Save to database if Accepted
+    if (result.status === 'Accepted') {
+      const schedule = [];
+      let currentDate = new Date();
+      for (let i = 0; i < result.durationMonths; i++) {
+        // Increment month for each installment
+        currentDate = new Date(currentDate.setMonth(currentDate.getMonth() + 1));
+        schedule.push({
+          dueDate: currentDate,
+          amount: result.approvedMonthlyAmount,
+          status: 'Unpaid'
+        });
+      }
+
+      await PaymentPlan.create({
+        customerId: account.customerId,
+        totalAmount: account.outstandingAmount,
+        emiAmount: result.approvedMonthlyAmount,
+        frequency: 'Monthly',
+        installmentsCount: result.durationMonths,
+        startDate: new Date(),
+        status: 'Active',
+        schedule
+      });
+
+      // Update customer status to Active (clearing escalated/disputed statuses)
+      await Customer.findByIdAndUpdate(account.customerId, { status: 'Active' });
+    }
+
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Repayment Plans', 'Success', { customerId, proposedAmount, hardshipReason }, result, duration);
+    return res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Repayment Plans', 'Error', { customerId }, null, duration, (error as Error).message);
+    return res.status(500).json({ message: 'Repayment negotiation failed', error: (error as Error).message });
+  }
+};
+
+// 8. Dispute Management Agent
+export const handleDispute = async (req: AuthRequest, res: Response) => {
+  const { customerId, disputeReason } = req.body;
+  if (!customerId || !disputeReason) return res.status(400).json({ message: 'Missing fields' });
+
+  const startTime = Date.now();
+  try {
+    const account = await Account.findOne({ customerId });
+    if (!account) throw new Error('Account not found');
+
+    let result;
+    if (isGroqEnabled()) {
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content: `You are a Dispute Management Agent. Review the dispute claim. 
+If it sounds like a simple misunderstanding, propose 'Provide Evidence'. If it sounds serious or legal, propose 'Escalate to Officer'.
+Respond in JSON:
+{ "action": "Provide Evidence" | "Escalate to Officer" | "Dismiss", "responseToCustomer": "string" }`,
+          },
+          {
+            role: 'user',
+            content: `Dispute Reason: "${disputeReason}". Outstanding: $${account.outstandingAmount}`,
+          },
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      });
+      result = JSON.parse(chatCompletion.choices[0]?.message?.content || '{}');
+    } else {
+      // Mock Dispute
+      if (disputeReason.toLowerCase().includes('legal') || disputeReason.toLowerCase().includes('sue')) {
+        result = { action: 'Escalate to Officer', responseToCustomer: 'We take this seriously and have escalated this to a senior officer.' };
+      } else {
+        result = { action: 'Provide Evidence', responseToCustomer: 'Please provide receipts or bank statements to support your claim.' };
+      }
+    }
+
+    if (result.action === 'Escalate to Officer') {
+       await Escalation.create({
+         customerId,
+         reason: `Dispute: ${disputeReason}`,
+         severity: 'High',
+         status: 'Pending'
+       });
+       await Customer.findByIdAndUpdate(customerId, { status: 'Escalated' });
+    } else {
+       await Customer.findByIdAndUpdate(customerId, { status: 'Disputed' });
+    }
+
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Dispute Management', 'Success', { customerId, disputeReason }, result, duration);
+    return res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Dispute Management', 'Error', { customerId }, null, duration, (error as Error).message);
+    return res.status(500).json({ message: 'Dispute handling failed', error: (error as Error).message });
+  }
+};
+
+// 9. Analytics and Report Agent
+export const generateAIAnalytics = async (req: AuthRequest, res: Response) => {
+  const startTime = Date.now();
+  try {
+    const { metrics } = req.body; // Pass in dashboard metrics
+    let result;
+    
+    if (isGroqEnabled() && metrics) {
+      const chatCompletion = await groq.chat.completions.create({
+        messages: [
+          {
+            role: 'system',
+            content: `You are an Analytics and Report Agent for a debt collection agency. Provide a 2-3 sentence executive summary of the performance metrics provided. Be professional and highlight key trends. Respond ONLY in JSON: { "executiveSummary": "string" }`,
+          },
+          {
+            role: 'user',
+            content: `Metrics: ${JSON.stringify(metrics)}`,
+          },
+        ],
+        model: 'llama-3.3-70b-versatile',
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+      });
+      result = JSON.parse(chatCompletion.choices[0]?.message?.content || '{}');
+    } else {
+      result = { executiveSummary: 'System performance remains stable. Automated agents are actively processing the queue, leading to consistent recovery rates.' };
+    }
+
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Analytics & Report', 'Success', { metrics }, result, duration);
+    return res.status(200).json(result);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    await saveAgentLog('Analytics & Report', 'Error', {}, null, duration, (error as Error).message);
+    return res.status(500).json({ message: 'Analytics generation failed', error: (error as Error).message });
   }
 };
 
