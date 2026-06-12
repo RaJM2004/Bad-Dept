@@ -108,43 +108,51 @@ Respond ONLY in valid JSON:
             ]
             result = {"risk_flag": False, "risk_flag_reason": ""}
 
+        # Helper to get credentials
+        def get_creds():
+            try:
+                from config.database import get_sync_db
+                db = get_sync_db()
+                if db is None: return None
+                user = db["users"].find_one({"accessToken": {"$exists": True}})
+                if user and user.get("accessToken"):
+                    from config.google_client import build_credentials
+                    return build_credentials(user["accessToken"], user.get("refreshToken"))
+            except Exception as e:
+                pass
+            return None
+
+        creds = get_creds()
+
         # ── Google Slides report stub ──────────────────────────────────────
-        # slides = get_slides_service(credentials)
-        # presentation = slides.presentations().create(body={"title": f"Report_{customer_name}_{datetime.utcnow().date()}"}).execute()
-        # presentation_id = presentation.get("presentationId")
         slides_url = f"https://slides.google.com/stub/{state.get('pipeline_run_id','N/A')}"
         state["pipeline_logs"].append(f"{log_prefix} 📊 Google Slides: Report created (stub)")
 
-        # ── Google Docs compliance log stub ───────────────────────────────
-        # docs = get_docs_service(credentials)
-        # document = docs.documents().create(body={"title": f"Compliance_{customer_name}"}).execute()
-        docs_url = f"https://docs.google.com/stub/{state.get('pipeline_run_id','N/A')}"
-        state["pipeline_logs"].append(f"{log_prefix} 📄 Google Docs: Compliance log created (stub)")
-
-        # ── Save pipeline run log to MongoDB agent_logs ───────────────────
+        # ── Google Docs compliance log ───────────────────────────────
         try:
-            db = get_db()
-            if db:
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(
-                    db["agentlogs"].insert_one({
-                        "agentName": "Pipeline Run",
-                        "status": "Success",
-                        "requestDetails": {"customer_id": state["customer_id"]},
-                        "responseDetails": {
-                            "summary": pipeline_summary,
-                            "compliant": compliant,
-                            "executive_summary": executive_summary,
-                            "logs": pipeline_logs,
-                        },
-                        "durationMs": 0,
-                        "createdAt": datetime.utcnow(),
-                    })
-                )
-                loop.close()
-                state["pipeline_logs"].append(f"{log_prefix} 💾 Pipeline log saved to MongoDB")
-        except Exception as db_err:
-            state["pipeline_logs"].append(f"{log_prefix} ⚠️ Could not save log: {db_err}")
+            state["pipeline_logs"].append(f"{log_prefix} 📄 Google Docs: Creating compliance log")
+            if creds:
+                from config.google_client import get_docs_service
+                docs = get_docs_service(creds)
+                doc_title = f"Compliance Log - {customer_name} - {datetime.utcnow().isoformat()[:10]}"
+                doc = docs.documents().create(body={"title": doc_title}).execute()
+                requests = [{
+                    "insertText": {
+                        "location": {"index": 1},
+                        "text": f"Compliance Audit Log\n\nCustomer: {customer_name}\nCompliant: {compliant}\n\nSummary:\n{executive_summary}\n\nPipeline Run ID: {state.get('pipeline_run_id')}"
+                    }
+                }]
+                docs.documents().batchUpdate(documentId=doc.get("documentId"), body={"requests": requests}).execute()
+                docs_url = f"https://docs.google.com/document/d/{doc.get('documentId')}/edit"
+            else:
+                docs_url = f"https://docs.google.com/stub/{state.get('pipeline_run_id','N/A')}"
+                state["pipeline_logs"].append(f"{log_prefix} ⚠️ Google Docs creation failed: No credentials")
+        except Exception as e:
+            docs_url = f"https://docs.google.com/stub/{state.get('pipeline_run_id','N/A')}"
+            state["pipeline_logs"].append(f"{log_prefix} ⚠️ Google Docs creation failed: {e}")
+
+        # ── Pipeline run log is now saved in the main router ───────────────────
+        pass
 
         state["compliance_report"] = {
             "compliant": compliant,

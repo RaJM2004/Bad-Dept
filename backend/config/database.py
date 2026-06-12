@@ -27,3 +27,13 @@ async def close_db():
 
 def get_db():
     return db
+
+
+def get_sync_db():
+    from pymongo import MongoClient
+    import certifi
+    global _sync_client
+    if "_sync_client" not in globals():
+        global _sync_client
+        _sync_client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    return _sync_client.get_default_database()

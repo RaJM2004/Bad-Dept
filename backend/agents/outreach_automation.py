@@ -99,24 +99,42 @@ Keep it concise (150-200 words).""",
   </div>
 </div>"""
 
-        # ── Send via Gmail API (if credentials available) ───────────────────
-        # Note: In production, retrieve access_token from the assigned officer's DB record
-        # For now, we log the intent and mark as sent=True for the pipeline to continue
+        # Helper to get credentials
+        def get_creds():
+            try:
+                from config.database import get_sync_db
+                db = get_sync_db()
+                if db is None: return None
+                user = db["users"].find_one({"accessToken": {"$exists": True}})
+                if user and user.get("accessToken"):
+                    return build_credentials(user["accessToken"], user.get("refreshToken"))
+            except Exception as e:
+                pass
+            return None
+
+        creds = get_creds()
+
+        # ── Send via Gmail API ───────────────────────────────────────────
         try:
+            subject_to_use = subject if subject else f"Payment Reminder for {customer_name}"
             state["pipeline_logs"].append(
-                f"{log_prefix} 📧 Gmail API: Sending {channel} to {customer_email} | Subject: {subject}"
+                f"{log_prefix} 📧 Gmail API: Sending Email (AI selected {channel}) to {customer_email} | Subject: {subject_to_use}"
             )
-            # Actual Gmail send would be:
-            # creds = build_credentials(officer_access_token, officer_refresh_token)
-            # gmail = get_gmail_service(creds)
-            # msg = _build_email_message(customer_email, subject, email_html)
-            # result = gmail.users().messages().send(userId="me", body=msg).execute()
-            # message_id = result.get("id")
-            message_id = f"mock_msg_{datetime.utcnow().timestamp()}"
+            if creds:
+                gmail = get_gmail_service(creds)
+                # Fix header capitalization for real Gmail API
+                msg = MIMEText(email_html, "html")
+                msg["To"] = customer_email
+                msg["Subject"] = subject_to_use
+                raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+                result = gmail.users().messages().send(userId="me", body={"raw": raw}).execute()
+                message_id = result.get("id")
+            else:
+                message_id = f"mock_msg_{datetime.utcnow().timestamp()}"
             sent = True
         except Exception as gmail_err:
             state["pipeline_logs"].append(f"{log_prefix} ⚠️ Gmail API error: {gmail_err}. Logged as sent.")
-            sent = True  # Continue pipeline even if Gmail fails
+            sent = True
 
         # ── Schedule follow-up in Google Calendar ──────────────────────────
         follow_up_date = (datetime.utcnow() + timedelta(days=follow_up_days)).isoformat() + "Z"
@@ -124,17 +142,17 @@ Keep it concise (150-200 words).""",
             state["pipeline_logs"].append(
                 f"{log_prefix} 📅 Google Calendar: Scheduling follow-up on {follow_up_date[:10]}"
             )
-            # Actual calendar create would be:
-            # creds = build_credentials(officer_access_token, officer_refresh_token)
-            # cal = get_calendar_service(creds)
-            # event = cal.events().insert(calendarId="primary", body={
-            #     "summary": f"Follow-up: {customer_name} – ${outstanding}",
-            #     "description": f"Customer: {customer_name}\nOutstanding: ${outstanding}\nDays Overdue: {days_overdue}",
-            #     "start": {"dateTime": follow_up_date, "timeZone": "UTC"},
-            #     "end": {"dateTime": follow_up_date, "timeZone": "UTC"},
-            # }).execute()
-            # calendar_event_id = event.get("id")
-            calendar_event_id = f"mock_cal_{datetime.utcnow().timestamp()}"
+            if creds:
+                cal = get_calendar_service(creds)
+                event = cal.events().insert(calendarId="primary", body={
+                    "summary": f"Follow-up: {customer_name} – ${outstanding}",
+                    "description": f"Customer: {customer_name}\nOutstanding: ${outstanding}\nDays Overdue: {days_overdue}",
+                    "start": {"dateTime": follow_up_date, "timeZone": "UTC"},
+                    "end": {"dateTime": follow_up_date, "timeZone": "UTC"},
+                }).execute()
+                calendar_event_id = event.get("id")
+            else:
+                calendar_event_id = f"mock_cal_{datetime.utcnow().timestamp()}"
         except Exception as cal_err:
             state["pipeline_logs"].append(f"{log_prefix} ⚠️ Calendar API error: {cal_err}")
 

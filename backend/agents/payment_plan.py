@@ -58,7 +58,7 @@ Respond ONLY in valid JSON:
                     },
                     {
                         "role": "user",
-                        "content": f"Outstanding: ${outstanding} | Days Overdue: {days_overdue} | Risk Score: {risk_score}/100",
+                        "content": f"Outstanding: ₹{outstanding} | Days Overdue: {days_overdue} | Risk Score: {risk_score}/100",
                     },
                 ],
             )
@@ -89,7 +89,7 @@ Respond ONLY in valid JSON:
                     "total_payable": outstanding,
                     "discount_percent": 0,
                     "settlement_offer": False,
-                    "reasoning": f"4-month EMI plan. ${monthly}/month.",
+                    "reasoning": f"4-month EMI plan. ₹{monthly}/month.",
                     "first_payment_due": (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d"),
                 }
             else:
@@ -102,16 +102,16 @@ Respond ONLY in valid JSON:
                     "total_payable": outstanding,
                     "discount_percent": 0,
                     "settlement_offer": False,
-                    "reasoning": f"3-month EMI plan. ${monthly}/month.",
+                    "reasoning": f"3-month EMI plan. ₹{monthly}/month.",
                     "first_payment_due": (datetime.utcnow() + timedelta(days=30)).strftime("%Y-%m-%d"),
                 }
 
-        # ── Persist to MongoDB asynchronously ─────────────────────────────
-        # We use asyncio.create_task to save without blocking the sync node
+        # ── Persist to MongoDB synchronously ─────────────────────────────
         if result.get("status") == "Accepted":
             try:
-                db = get_db()
-                if db:
+                from config.database import get_sync_db
+                db = get_sync_db()
+                if db is not None:
                     duration = result.get("duration_months", 3)
                     monthly_amt = result.get("approved_monthly_amount", outstanding)
                     schedule = []
@@ -139,9 +139,7 @@ Respond ONLY in valid JSON:
                         "updatedAt": datetime.utcnow(),
                     }
 
-                    loop = asyncio.new_event_loop()
-                    loop.run_until_complete(db["paymentplans"].insert_one(plan_doc))
-                    loop.close()
+                    db["paymentplans"].insert_one(plan_doc)
                     state["pipeline_logs"].append(f"{log_prefix} 💾 Payment plan saved to MongoDB")
             except Exception as db_err:
                 state["pipeline_logs"].append(f"{log_prefix} ⚠️ Could not save plan to DB: {db_err}")
@@ -152,7 +150,7 @@ Respond ONLY in valid JSON:
 
         state["pipeline_logs"].append(
             f"{log_prefix} ✅ Plan: {result.get('plan_type')} | "
-            f"${result.get('approved_monthly_amount')}/mo × {result.get('duration_months')} months"
+            f"₹{result.get('approved_monthly_amount')}/mo × {result.get('duration_months')} months"
         )
 
     except Exception as e:

@@ -131,10 +131,13 @@ const DashboardLayout: React.FC = () => {
           </div>
 
           <div className="p-3 mb-4 flex flex-col gap-1">
-            <button className="flex items-center gap-4 px-4 py-3 rounded-lg text-sm font-semibold text-gen-textDark hover:bg-gen-sidebarHover transition-colors w-full text-left">
+            <NavLink 
+              to="/integrations"
+              className={({isActive}) => `flex items-center gap-4 px-4 py-3 rounded-lg text-sm font-semibold transition-colors w-full text-left ${isActive ? 'bg-white/30 text-gen-textDark' : 'text-gen-textDark hover:bg-gen-sidebarHover'}`}
+            >
               <Settings size={18} />
-              Settings
-            </button>
+              Integrations & Settings
+            </NavLink>
             <button 
               onClick={logout}
               className="flex items-center gap-4 px-4 py-3 rounded-lg text-sm font-semibold text-gen-textDark hover:bg-gen-sidebarHover transition-colors w-full text-left"

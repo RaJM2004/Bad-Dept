@@ -129,6 +129,8 @@ async def google_login(body: GoogleLoginRequest):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Google authentication failed: {str(e)}")
 
 
@@ -167,5 +169,27 @@ async def get_profile(current_user: dict = Depends(__import__("middleware.auth",
         raise HTTPException(status_code=404, detail="User not found")
     user.pop("accessToken", None)
     user.pop("refreshToken", None)
+    user.pop("razorpay_key_id", None)
+    user.pop("razorpay_key_secret", None)
     user["id"] = str(user.pop("_id"))
+    user["has_razorpay_integration"] = bool(user.get("razorpay_key_id"))
     return user
+
+
+class RazorpayKeysRequest(BaseModel):
+    razorpay_key_id: str
+    razorpay_key_secret: str
+
+
+@router.post("/integrations/razorpay")
+async def update_razorpay_keys(body: RazorpayKeysRequest, current_user: dict = Depends(__import__("middleware.auth", fromlist=["get_current_user"]).get_current_user)):
+    db = get_db()
+    await db["users"].update_one(
+        {"_id": ObjectId(current_user["id"])},
+        {"$set": {
+            "razorpay_key_id": body.razorpay_key_id,
+            "razorpay_key_secret": body.razorpay_key_secret,
+            "updatedAt": datetime.utcnow()
+        }}
+    )
+    return {"message": "Razorpay keys securely saved!"}

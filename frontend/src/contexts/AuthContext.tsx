@@ -27,9 +27,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const fetchUser = async () => {
       if (token) {
         try {
-          // Assuming there's a me endpoint, or we just trust the token for now
-          // For MVP, if token exists, we just set a mock user or we need to fetch it
-          // Let's decode it or just keep it simple
+          const { default: api } = await import('../lib/axios');
+          const res = await api.get('/auth/profile');
+          setUser(res.data);
           setLoading(false);
         } catch (error) {
           localStorage.removeItem('token');

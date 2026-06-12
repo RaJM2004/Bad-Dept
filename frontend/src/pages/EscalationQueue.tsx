@@ -97,7 +97,7 @@ const EscalationQueue = () => {
 
                   {/* Delinquency Info */}
                   <div className="col-span-2 flex flex-col justify-center">
-                    <p className="text-sm font-bold text-gen-textDark">${c.outstandingAmount?.toLocaleString()}</p>
+                    <p className="text-sm font-bold text-gen-textDark">₹{c.outstandingAmount?.toLocaleString()}</p>
                     <p className="text-xs font-semibold text-orange-600">{c.daysOverdue} Days Overdue</p>
                   </div>
 
@@ -120,6 +120,10 @@ const EscalationQueue = () => {
                       Resolve
                     </button>
                     <button 
+                      onClick={() => {
+                        toast.success('Opening full customer timeline for review...');
+                        setTimeout(() => { window.location.href = '/customers'; }, 1000);
+                      }}
                       className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold transition-colors text-xs flex items-center gap-1.5 shadow-sm"
                     >
                       Review

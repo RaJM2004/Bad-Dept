@@ -42,54 +42,77 @@ def status_update_node(state: BadDebtState) -> BadDebtState:
         # ── Update MongoDB ─────────────────────────────────────────────────
         db_updated = False
         try:
-            db = get_db()
-            if db:
+            from config.database import get_sync_db
+            db = get_sync_db()
+            if db is not None:
                 from bson import ObjectId
-                loop = asyncio.new_event_loop()
 
-                async def do_db_updates():
-                    # Update customer status
-                    await db["customers"].update_one(
-                        {"_id": ObjectId(customer_id)},
-                        {"$set": {"status": new_status, "updatedAt": datetime.utcnow()}},
-                    )
-                    # Append to contact history
-                    await db["accounts"].update_one(
-                        {"customerId": ObjectId(customer_id)},
-                        {
-                            "$push": {
-                                "contactHistory": {
-                                    "date": datetime.utcnow(),
-                                    "channel": outreach.get("channel_used", "Email"),
-                                    "notes": notes,
-                                }
-                            },
-                            "$set": {"updatedAt": datetime.utcnow()},
+                # Update customer status
+                db["customers"].update_one(
+                    {"_id": ObjectId(customer_id)},
+                    {"$set": {"status": new_status, "updatedAt": datetime.utcnow()}},
+                )
+                # Append to contact history
+                db["accounts"].update_one(
+                    {"customerId": ObjectId(customer_id)},
+                    {
+                        "$push": {
+                            "contactHistory": {
+                                "date": datetime.utcnow(),
+                                "channel": outreach.get("channel_used", "Email"),
+                                "notes": notes,
+                            }
                         },
-                    )
+                        "$set": {"updatedAt": datetime.utcnow()},
+                    },
+                )
 
-                loop.run_until_complete(do_db_updates())
-                loop.close()
                 db_updated = True
                 state["pipeline_logs"].append(f"{log_prefix} 💾 MongoDB updated. Status → {new_status}")
         except Exception as db_err:
             state["pipeline_logs"].append(f"{log_prefix} ⚠️ MongoDB update failed: {db_err}")
 
+        # Helper to get credentials
+        def get_creds():
+            try:
+                from config.database import get_sync_db
+                db = get_sync_db()
+                if db is None: return None
+                user = db["users"].find_one({"accessToken": {"$exists": True}})
+                if user and user.get("accessToken"):
+                    from config.google_client import build_credentials
+                    return build_credentials(user["accessToken"], user.get("refreshToken"))
+            except Exception as e:
+                pass
+            return None
+
+        creds = get_creds()
+
         # ── Google Sheets sync (stub) ──────────────────────────────────────
-        # In production: update the row for this customer in the collections tracking sheet
-        # sheets = get_sheets_service(build_credentials(access_token, refresh_token))
-        # sheets.spreadsheets().values().update(
-        #     spreadsheetId=SHEET_ID, range=f"Sheet1!A{row}:G{row}",
-        #     valueInputOption="RAW",
-        #     body={"values": [[customer_id, state["customer_name"], new_status, ...]]},
-        # ).execute()
+        # Left stubbed as it requires a specific pre-existing spreadsheetId to update
         state["pipeline_logs"].append(f"{log_prefix} 📊 Google Sheets: Status synced (stub)")
 
-        # ── Google Drive upload (stub) ────────────────────────────────────
-        # In production: upload pipeline log as a JSON file to Drive
-        # drive = get_drive_service(credentials)
-        # drive.files().create(body={"name": f"run_{pipeline_run_id}.json"}, ...).execute()
-        state["pipeline_logs"].append(f"{log_prefix} 📁 Google Drive: Log uploaded (stub)")
+        # ── Google Drive upload ────────────────────────────────────
+        try:
+            state["pipeline_logs"].append(f"{log_prefix} 📁 Google Drive: Uploading log to Drive")
+            if creds:
+                from config.google_client import get_drive_service
+                from googleapiclient.http import MediaIoBaseUpload
+                import io
+                import json
+                
+                drive = get_drive_service(creds)
+                log_data = json.dumps(state["pipeline_logs"], indent=2)
+                media = MediaIoBaseUpload(io.BytesIO(log_data.encode("utf-8")), mimetype="application/json")
+                
+                drive.files().create(
+                    body={"name": f"run_{state.get('pipeline_run_id')}.json"},
+                    media_body=media
+                ).execute()
+            else:
+                state["pipeline_logs"].append(f"{log_prefix} ⚠️ Google Drive upload failed: No credentials")
+        except Exception as e:
+            state["pipeline_logs"].append(f"{log_prefix} ⚠️ Google Drive upload failed: {e}")
 
         state["status_update_result"] = {
             "new_customer_status": new_status,

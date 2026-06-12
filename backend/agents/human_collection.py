@@ -73,20 +73,37 @@ def human_collection_node(state: BadDebtState) -> BadDebtState:
         calendar_event_id = None
         notes = []
 
+        # Helper to get credentials
+        def get_creds():
+            try:
+                from config.database import get_sync_db
+                db = get_sync_db()
+                if db is None: return None
+                user = db["users"].find_one({"accessToken": {"$exists": True}})
+                if user and user.get("accessToken"):
+                    from config.google_client import build_credentials
+                    return build_credentials(user["accessToken"], user.get("refreshToken"))
+            except Exception as e:
+                pass
+            return None
+
+        creds = get_creds()
+
         # ── Send Gmail to officer ──────────────────────────────────────────
         subject = f"[Action Required] {customer_name} – ${outstanding:,.2f} outstanding, {days_overdue} days overdue"
         try:
             state["pipeline_logs"].append(
                 f"{log_prefix} 📧 Gmail: Notifying officer ({officer_email or 'default'}) about {customer_name}"
             )
-            # Actual send:
-            # creds = build_credentials(officer_access_token, officer_refresh_token)
-            # gmail = get_gmail_service(creds)
-            # msg_payload = MIMEText(email_html, "html")
-            # msg_payload["to"] = officer_email
-            # msg_payload["subject"] = subject
-            # raw = base64.urlsafe_b64encode(msg_payload.as_bytes()).decode()
-            # gmail.users().messages().send(userId="me", body={"raw": raw}).execute()
+            if creds and officer_email:
+                from config.google_client import get_gmail_service
+                gmail = get_gmail_service(creds)
+                msg_payload = MIMEText(email_html, "html")
+                msg_payload["To"] = officer_email
+                msg_payload["Subject"] = subject
+                raw = base64.urlsafe_b64encode(msg_payload.as_bytes()).decode()
+                gmail.users().messages().send(userId="me", body={"raw": raw}).execute()
+            
             email_sent = True
             notes.append(f"Officer notification email prepared for {officer_email}")
         except Exception as e:
@@ -99,18 +116,19 @@ def human_collection_node(state: BadDebtState) -> BadDebtState:
             state["pipeline_logs"].append(
                 f"{log_prefix} 📅 Google Calendar: Creating officer review event"
             )
-            # Actual calendar create:
-            # creds = build_credentials(officer_access_token, officer_refresh_token)
-            # cal = get_calendar_service(creds)
-            # event_body = {
-            #     "summary": f"Review: {customer_name} – ${outstanding:,.2f}",
-            #     "description": f"Payment plan proposed: {json.dumps(payment_plan, indent=2)}",
-            #     "start": {"dateTime": follow_up_dt, "timeZone": "UTC"},
-            #     "end": {"dateTime": follow_up_dt, "timeZone": "UTC"},
-            # }
-            # event = cal.events().insert(calendarId="primary", body=event_body).execute()
-            # calendar_event_id = event.get("id")
-            calendar_event_id = f"officer_review_{datetime.utcnow().timestamp()}"
+            if creds:
+                from config.google_client import get_calendar_service
+                cal = get_calendar_service(creds)
+                event_body = {
+                    "summary": f"Review: {customer_name} – ${outstanding:,.2f}",
+                    "description": f"Payment plan proposed: {json.dumps(payment_plan, indent=2)}",
+                    "start": {"dateTime": follow_up_dt, "timeZone": "UTC"},
+                    "end": {"dateTime": follow_up_dt, "timeZone": "UTC"},
+                }
+                event = cal.events().insert(calendarId="primary", body=event_body).execute()
+                calendar_event_id = event.get("id")
+            else:
+                calendar_event_id = f"officer_review_{datetime.utcnow().timestamp()}"
             notes.append(f"Calendar event scheduled for {follow_up_dt[:10]}")
         except Exception as e:
             notes.append(f"Calendar event creation failed: {e}")

@@ -141,10 +141,25 @@ async def run_pipeline(body: RunPipelineRequest, current_user: dict = Depends(ge
     final_state = pipeline.invoke(initial_state)
     duration_ms = int((time.time() - start) * 1000)
 
+    # Build summary
+    summary = {
+        "customer": initial_state["customer_name"],
+        "outstanding": initial_state["outstanding_amount"],
+        "days_overdue": initial_state["days_overdue"],
+        "priority": (final_state.get("screening_result") or {}).get("priority"),
+        "channel_used": (final_state.get("outreach_result") or {}).get("channel_used"),
+        "payment_plan": (final_state.get("payment_plan_result") or {}).get("plan_type"),
+    }
+    
     await _save_agent_log(
-        db, "Pipeline Run", "Success",
+        db, "Pipeline Run", "Success" if final_state.get("pipeline_complete") else "Error",
         {"customer_id": body.customer_id},
-        {"pipeline_run_id": final_state.get("pipeline_run_id")},
+        {
+            "pipeline_run_id": final_state.get("pipeline_run_id"),
+            "summary": summary,
+            "executive_summary": (final_state.get("compliance_report") or {}).get("executive_summary"),
+            "logs": final_state.get("pipeline_logs", [])
+        },
         duration_ms,
     )
 
@@ -284,7 +299,7 @@ async def generate_resolution(body: ResolutionRequest, current_user: dict = Depe
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": "Recommend: Full Payment, EMI Plan, Settlement Offer, Human Escalation. Output riskScore (0-100), paymentSchedule. JSON: {\"recommendedAction\":\"...\",\"reasoning\":\"...\",\"riskScore\":50,\"paymentSchedule\":\"...\",\"suggestedDiscountPercentage\":0}"},
-                    {"role": "user", "content": f"Balance: ${account.get('outstandingAmount')}, Overdue: {account.get('daysOverdue')} days, Intent: {body.customerIntent}, Sentiment: {body.customerSentiment}"},
+                    {"role": "user", "content": f"Balance: ₹{account.get('outstandingAmount')}, Overdue: {account.get('daysOverdue')} days, Intent: {body.customerIntent}, Sentiment: {body.customerSentiment}"},
                 ],
             )
             result = json.loads(comp.choices[0].message.content or "{}")
@@ -295,12 +310,12 @@ async def generate_resolution(body: ResolutionRequest, current_user: dict = Depe
                 result = {"recommendedAction": "Human Escalation", "reasoning": "Escalated due to sentiment.", "riskScore": account.get("riskScore", 0), "paymentSchedule": "Escalate to officer", "suggestedDiscountPercentage": 0}
             elif overdue >= 90:
                 disc = round(outstanding * 0.7, 2)
-                result = {"recommendedAction": "Settlement Offer", "reasoning": "Severely delinquent.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"Lump-sum ${disc} (30% off)", "suggestedDiscountPercentage": 30}
+                result = {"recommendedAction": "Settlement Offer", "reasoning": "Severely delinquent.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"Lump-sum ₹{disc} (30% off)", "suggestedDiscountPercentage": 30}
             elif overdue >= 30:
                 monthly = round(outstanding / 3, 2)
-                result = {"recommendedAction": "EMI Plan", "reasoning": "Moderate overdue.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"3 × ${monthly}/month", "suggestedDiscountPercentage": 0}
+                result = {"recommendedAction": "EMI Plan", "reasoning": "Moderate overdue.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"3 × ₹{monthly}/month", "suggestedDiscountPercentage": 0}
             else:
-                result = {"recommendedAction": "Full Payment", "reasoning": "Low overdue.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"Full ${outstanding}", "suggestedDiscountPercentage": 0}
+                result = {"recommendedAction": "Full Payment", "reasoning": "Low overdue.", "riskScore": account.get("riskScore", 0), "paymentSchedule": f"Full ₹{outstanding}", "suggestedDiscountPercentage": 0}
 
         await _save_agent_log(db, "Resolution Generator", "Success", body.model_dump(), result, int((time.time()-start)*1000))
         return result
@@ -324,7 +339,7 @@ async def log_communication(body: LogCommunicationRequest, current_user: dict = 
         # Run intent + sentiment via individual endpoints logic (inline)
         intent_cat, intent_conf = "General Inquiry", 0.8
         sentiment_cat, sentiment_conf, should_escalate, escalation_reason = "Neutral", 0.8, False, ""
-        recommended, reasoning, schedule = "Full Payment", "", f"Full payment of ${account.get('outstandingAmount')}"
+        recommended, reasoning, schedule = "Full Payment", "", f"Full payment of ₹{account.get('outstandingAmount')}"
 
         if is_groq_enabled():
             client = get_groq_client()
@@ -376,13 +391,13 @@ async def generate_email(body: GenerateEmailRequest, current_user: dict = Depend
             comp = client.chat.completions.create(
                 model="llama-3.3-70b-versatile", temperature=0.4,
                 messages=[{"role": "system", "content": f"""Write a persuasive FDCPA-compliant HTML debt collection email.
-Customer: {customer.get('name')}, Amount: ${account.get('outstandingAmount')}, Days Overdue: {account.get('daysOverdue')}, Action: {body.recommendedAction}, Schedule: {body.paymentSchedule}.
+Customer: {customer.get('name')}, Amount: ₹{account.get('outstandingAmount')}, Days Overdue: {account.get('daysOverdue')}, Action: {body.recommendedAction}, Schedule: {body.paymentSchedule}.
 Output ONLY raw HTML starting with <div>. No markdown. Use inline CSS. Include a blue 'Pay Now' button and FDCPA footer."""}],
             )
             email_body = comp.choices[0].message.content or ""
             email_body = email_body.replace("```html", "").replace("```", "").strip()
         else:
-            email_body = f"""<div style="font-family:sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;"><div style="background:#1e3a5f;padding:24px;text-align:center;"><h2 style="margin:0;color:white;">Action Required: Outstanding Balance</h2></div><div style="padding:32px;"><p>Dear <strong>{customer.get('name')}</strong>,</p><p>Your outstanding balance of <strong>${account.get('outstandingAmount'):,.2f}</strong> is <strong>{account.get('daysOverdue')} days overdue</strong>.</p><div style="background:#f0f9ff;border-left:4px solid #2563eb;padding:16px;margin:24px 0;"><h3 style="margin-top:0;">Proposed Resolution: {body.recommendedAction}</h3><p style="margin-bottom:0;">{body.paymentSchedule}</p></div><div style="text-align:center;margin:32px 0;"><a href="#" style="background:#2563eb;color:white;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">Pay Now</a></div><p style="font-size:11px;color:#6b7280;">This is an attempt to collect a debt.</p></div></div>"""
+            email_body = f"""<div style="font-family:sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;"><div style="background:#1e3a5f;padding:24px;text-align:center;"><h2 style="margin:0;color:white;">Action Required: Outstanding Balance</h2></div><div style="padding:32px;"><p>Dear <strong>{customer.get('name')}</strong>,</p><p>Your outstanding balance of <strong>₹{account.get('outstandingAmount'):,.2f}</strong> is <strong>{account.get('daysOverdue')} days overdue</strong>.</p><div style="background:#f0f9ff;border-left:4px solid #2563eb;padding:16px;margin:24px 0;"><h3 style="margin-top:0;">Proposed Resolution: {body.recommendedAction}</h3><p style="margin-bottom:0;">{body.paymentSchedule}</p></div><div style="text-align:center;margin:32px 0;"><a href="#" style="background:#2563eb;color:white;padding:14px 28px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">Pay Now</a></div><p style="font-size:11px;color:#6b7280;">This is an attempt to collect a debt.</p></div></div>"""
 
         return {"emailBody": email_body}
     except HTTPException:
@@ -409,7 +424,7 @@ async def negotiate_repayment_plan(body: RepaymentPlanRequest, current_user: dic
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": "Repayment plan evaluator. If proposed amount clears debt in ≤6 months: Accepted. Otherwise Counter Offer (4 months). JSON: {\"status\":\"Accepted\",\"approvedMonthlyAmount\":0,\"durationMonths\":0,\"reasoning\":\"\"}"},
-                    {"role": "user", "content": f"Outstanding: ${outstanding}. Proposed: ${body.proposedAmount}/month. Hardship: {body.hardshipReason or 'None'}"},
+                    {"role": "user", "content": f"Outstanding: ₹{outstanding}. Proposed: ₹{body.proposedAmount}/month. Hardship: {body.hardshipReason or 'None'}"},
                 ],
             )
             result = json.loads(comp.choices[0].message.content or "{}")
@@ -462,7 +477,7 @@ async def handle_dispute(body: DisputeRequest, current_user: dict = Depends(get_
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": "Dispute handler. JSON: {\"action\":\"Provide Evidence|Escalate to Officer|Dismiss\",\"responseToCustomer\":\"...\"}"},
-                    {"role": "user", "content": f"Dispute: \"{body.disputeReason}\". Outstanding: ${account.get('outstandingAmount')}"},
+                    {"role": "user", "content": f"Dispute: \"{body.disputeReason}\". Outstanding: ₹{account.get('outstandingAmount')}"},
                 ],
             )
             result = json.loads(comp.choices[0].message.content or "{}")
@@ -519,6 +534,8 @@ async def get_agent_logs(current_user: dict = Depends(get_current_user)):
     logs = []
     async for log in logs_cursor:
         log["id"] = str(log.pop("_id"))
+        if "createdAt" in log and isinstance(log["createdAt"], datetime):
+            log["createdAt"] = log["createdAt"].isoformat() + "Z"
         if isinstance(log.get("requestDetails"), dict):
             for k, v in log["requestDetails"].items():
                 if isinstance(v, ObjectId):

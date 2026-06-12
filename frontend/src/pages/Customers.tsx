@@ -59,6 +59,9 @@ const Customers: React.FC = () => {
   const [analyzing, setAnalyzing] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
 
+  const [overrideAction, setOverrideAction] = useState<string>('');
+  const [overrideSchedule, setOverrideSchedule] = useState<string>('');
+
   const handleGenerateResolution = async (customer: any) => {
     setSelectedCustomer(customer);
     setAnalyzing(true);
@@ -67,10 +70,12 @@ const Customers: React.FC = () => {
       // Step 1: Run Resolution Agent
       const res = await api.post('/agents/resolution', {
         customerId: customer._id,
-        customerIntent: 'Payment Plan Request', // Simulating an intent for the demo
+        customerIntent: 'Unknown', // Changed from hardcoded 'Payment Plan Request'
         customerSentiment: 'Neutral'
       });
       setResolution(res.data);
+      setOverrideAction(res.data.recommendedAction);
+      setOverrideSchedule(res.data.paymentSchedule);
     } catch (err) {
       console.error(err);
       toast.error('Failed to generate AI resolution');
@@ -86,8 +91,8 @@ const Customers: React.FC = () => {
       // Generate highly persuasive email using Groq AI
       const emailRes = await api.post('/agents/generate-email', {
         customerId: selectedCustomer._id,
-        recommendedAction: resolution.recommendedAction,
-        paymentSchedule: resolution.paymentSchedule,
+        recommendedAction: overrideAction,
+        paymentSchedule: overrideSchedule,
         riskScore: resolution.riskScore,
       });
 
@@ -95,10 +100,10 @@ const Customers: React.FC = () => {
 
       // Send the email via Gmail API
       const res = await api.post('/gmail/send', {
-        customerId: selectedCustomer._id,
+        to: selectedCustomer.email,
+        customer_id: selectedCustomer._id,
         subject: `Important: Action Required for Outstanding Balance (₹${selectedCustomer.outstandingAmount.toLocaleString()})`,
         body: aiGeneratedBody,
-        type: 'Payment Resolution'
       });
       
       if (res.data.isRealSent) {
@@ -221,12 +226,44 @@ const Customers: React.FC = () => {
                 </div>
               ) : resolution ? (
                 <div className="space-y-6">
+                  <div className="bg-slate-50 p-5 rounded-2xl border">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">AI Reasoning</p>
+                    <p className="text-sm text-slate-600 leading-relaxed">{resolution.reasoning}</p>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-                      <p className="text-xs font-bold text-blue-500 uppercase tracking-wider mb-2">Recommended Strategy</p>
-                      <p className="font-bold text-lg text-slate-800">{resolution.recommendedAction}</p>
+                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 relative">
+                      <div className="flex justify-between items-center mb-3">
+                        <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">Strategy Config</p>
+                        <span className="text-[9px] bg-blue-200 text-blue-700 px-1.5 py-0.5 rounded text-center font-black">ADMIN OVERRIDE</span>
+                      </div>
+                      <select 
+                        value={overrideAction}
+                        onChange={(e) => {
+                          const action = e.target.value;
+                          setOverrideAction(action);
+                          if (action === 'Full Payment') {
+                            setOverrideSchedule(`Full ₹${selectedCustomer.outstandingAmount.toLocaleString()}`);
+                          } else if (action === 'Settlement Offer') {
+                            setOverrideSchedule(`Lump-sum ₹${Math.round(selectedCustomer.outstandingAmount * 0.7).toLocaleString()} (30% off)`);
+                          } else if (action === 'EMI Plan (3 Months)') {
+                            setOverrideSchedule(`3 × ₹${Math.round(selectedCustomer.outstandingAmount / 3).toLocaleString()}/month`);
+                          } else if (action === 'EMI Plan (6 Months)') {
+                            setOverrideSchedule(`6 × ₹${Math.round(selectedCustomer.outstandingAmount / 6).toLocaleString()}/month`);
+                          } else {
+                            setOverrideSchedule('Escalate to officer for manual review');
+                          }
+                        }}
+                        className="w-full bg-white border border-blue-200 text-slate-800 font-bold rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm cursor-pointer"
+                      >
+                        <option value="Full Payment">Full Payment</option>
+                        <option value="Settlement Offer">Settlement Offer (30% Discount)</option>
+                        <option value="EMI Plan (3 Months)">3-Month EMI Plan</option>
+                        <option value="EMI Plan (6 Months)">6-Month EMI Plan</option>
+                        <option value="Human Escalation">Human Escalation</option>
+                      </select>
                     </div>
-                    <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100">
+                    <div className="bg-orange-50/50 p-4 rounded-2xl border border-orange-100 flex flex-col justify-center">
                       <p className="text-xs font-bold text-orange-500 uppercase tracking-wider mb-2">Account Risk Score</p>
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -237,14 +274,14 @@ const Customers: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-5 rounded-2xl border">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Payment Schedule Details</p>
-                    <p className="font-medium text-slate-800">{resolution.paymentSchedule}</p>
-                  </div>
-                  
-                  <div className="bg-slate-50 p-5 rounded-2xl border">
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">AI Reasoning</p>
-                    <p className="text-sm text-slate-600 leading-relaxed">{resolution.reasoning}</p>
+                  <div className="bg-slate-50 p-4 rounded-2xl border focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Payment Schedule Details (Editable)</p>
+                    <input 
+                      type="text" 
+                      value={overrideSchedule}
+                      onChange={(e) => setOverrideSchedule(e.target.value)}
+                      className="w-full bg-white border border-slate-200 text-slate-800 font-medium rounded-lg p-3 text-sm outline-none shadow-sm"
+                    />
                   </div>
 
                   <div className="pt-6 mt-6 border-t flex justify-end gap-3">

@@ -40,7 +40,7 @@ const NodeResultCard: React.FC<{
         return `${data.sent ? '✅ Sent via' : '❌ Failed'} ${data.channel_used} · Follow-up: ${data.follow_up_date || 'N/A'}`;
       case 'payment_plan_result':
         return data.plan_type
-          ? `${data.plan_type} · $${data.approved_monthly_amount?.toLocaleString()}/mo × ${data.duration_months} months`
+          ? `${data.plan_type} · ₹${data.approved_monthly_amount?.toLocaleString()}/mo × ${data.duration_months} months`
           : `Status: ${data.status || 'N/A'}`;
       case 'human_collection_result':
         return `Officer ${data.email_sent ? 'notified' : 'pending'} · Review: ${data.review_date || 'N/A'}`;
@@ -73,12 +73,6 @@ const NodeResultCard: React.FC<{
           className="w-full flex items-center gap-3 p-4 text-left"
           disabled={isSkipped}
         >
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: isSkipped ? '#e2e8f0' : node.color }}
-          >
-            <Icon className="w-5 h-5 text-white" />
-          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <p className="font-bold text-sm" style={{ color: isSkipped ? '#94a3b8' : '#1e293b' }}>
@@ -116,7 +110,11 @@ const Agents: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'quick'>('pipeline');
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'quick' | 'history'>('pipeline');
+  
+  // History state
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Quick-test state (old single-agent flow)
   const [message, setMessage] = useState('');
@@ -129,6 +127,15 @@ const Agents: React.FC = () => {
       if (r.data.length > 0) setSelectedCustomer(r.data[0]._id);
     }).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      setHistoryLoading(true);
+      api.get('/agents/logs').then(r => {
+        setHistoryLogs(r.data.logs || []);
+      }).catch(console.error).finally(() => setHistoryLoading(false));
+    }
+  }, [activeTab]);
 
   // ── Run full LangGraph pipeline ──────────────────────────────────────────
   const handleRunPipeline = async () => {
@@ -182,7 +189,7 @@ const Agents: React.FC = () => {
 
       {/* Header */}
       <div className="bg-white rounded-3xl p-8 shadow-sm">
-        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gen-textDark">🤖 AI Agent Pipeline</h1>
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-gen-textDark">AI Agent Pipeline</h1>
         <p className="text-gen-textLight text-lg mt-2">
           Trigger the full 7-node LangGraph pipeline — Account Screening → Contact Strategy → Outreach → Payment Plan → Human Collection → Status Update → Compliance.
         </p>
@@ -194,13 +201,19 @@ const Agents: React.FC = () => {
           onClick={() => setActiveTab('pipeline')}
           className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${activeTab === 'pipeline' ? 'bg-gen-button text-white shadow' : 'text-gen-textLight hover:bg-gen-bg'}`}
         >
-          🚀 Full Pipeline
+          Full Pipeline
         </button>
         <button
           onClick={() => setActiveTab('quick')}
           className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${activeTab === 'quick' ? 'bg-gen-button text-white shadow' : 'text-gen-textLight hover:bg-gen-bg'}`}
         >
-          ⚡ Quick Test
+          Quick Test
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${activeTab === 'history' ? 'bg-slate-800 text-white shadow' : 'text-gen-textLight hover:bg-gen-bg'}`}
+        >
+          Audit History
         </button>
       </div>
 
@@ -221,7 +234,7 @@ const Agents: React.FC = () => {
                 >
                   {customers.map(c => (
                     <option key={c._id} value={c._id}>
-                      {c.name} — ${c.outstandingAmount?.toLocaleString() || 0} overdue
+                      {c.name} — ₹{c.outstandingAmount?.toLocaleString() || 0} overdue
                     </option>
                   ))}
                 </select>
@@ -234,7 +247,7 @@ const Agents: React.FC = () => {
                   <div className="grid grid-cols-2 gap-3">
                     {[
                       { label: 'Status', value: selectedCust.status },
-                      { label: 'Outstanding', value: `$${(selectedCust.outstandingAmount || 0).toLocaleString()}` },
+                      { label: 'Outstanding', value: `₹${(selectedCust.outstandingAmount || 0).toLocaleString()}` },
                       { label: 'Days Overdue', value: `${selectedCust.daysOverdue || 0}d` },
                       { label: 'Risk Score', value: `${selectedCust.riskScore || 0}/100` },
                     ].map(({ label, value }) => (
@@ -268,17 +281,20 @@ const Agents: React.FC = () => {
 
             {/* Pipeline log terminal */}
             {logs.length > 0 && (
-              <div className="bg-[#0f172a] rounded-3xl p-6 shadow-sm">
+              <div className="bg-[#0f172a] rounded-3xl p-6 shadow-sm border border-slate-800">
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 font-mono">📟 Pipeline Logs</p>
-                <div className="space-y-1 max-h-80 overflow-y-auto font-mono text-xs">
+                <div className="space-y-1.5 max-h-[400px] overflow-y-auto font-mono text-xs pr-2">
                   {logs.map((log, i) => (
-                    <p key={i} className={`leading-relaxed ${log.includes('❌') ? 'text-red-400' : log.includes('✅') ? 'text-green-400' : log.includes('⚠️') ? 'text-yellow-400' : 'text-slate-300'}`}>
+                    <p key={i} className={`leading-relaxed py-0.5 ${log.includes('❌') ? 'text-red-400' : log.includes('✅') ? 'text-green-400' : log.includes('⚠️') ? 'text-yellow-400' : 'text-slate-300'}`}>
                       {log}
                     </p>
                   ))}
                 </div>
                 {result?.duration_ms && (
-                  <p className="text-slate-500 text-xs mt-3 font-mono">⏱ Total: {result.duration_ms}ms</p>
+                  <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between items-center text-slate-500 text-xs font-mono">
+                    <span>STATUS: COMPLETE</span>
+                    <span>⏱ Total: {(result.duration_ms / 1000).toFixed(2)}s</span>
+                  </div>
                 )}
               </div>
             )}
@@ -289,27 +305,27 @@ const Agents: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-gen-textDark">Pipeline Execution</h2>
               {result?.pipeline_complete && (
-                <span className="flex items-center gap-1.5 text-green-600 font-bold text-sm bg-green-50 px-3 py-1.5 rounded-full">
+                <span className="flex items-center gap-1.5 text-green-600 font-bold text-sm bg-green-50 px-3 py-1.5 rounded-full border border-green-200">
                   <CheckCircle2 className="w-4 h-4" /> Complete
                 </span>
               )}
               {result?.error_message && (
-                <span className="flex items-center gap-1.5 text-red-600 font-bold text-sm bg-red-50 px-3 py-1.5 rounded-full">
+                <span className="flex items-center gap-1.5 text-red-600 font-bold text-sm bg-red-50 px-3 py-1.5 rounded-full border border-red-200">
                   <AlertCircle className="w-4 h-4" /> Error
                 </span>
               )}
             </div>
 
             {!result ? (
-              <div className="flex flex-col items-center justify-center min-h-[500px] text-center gap-4">
-                <div className="w-20 h-20 bg-gen-bg rounded-2xl flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center min-h-[500px] text-center gap-4 bg-slate-50 rounded-3xl border border-slate-100">
+                <div className="w-20 h-20 bg-white shadow-sm rounded-2xl flex items-center justify-center">
                   <Play className="w-10 h-10 text-gen-button opacity-50" />
                 </div>
-                <p className="text-lg font-bold text-slate-400">Pipeline Idle</p>
-                <p className="text-sm text-slate-400 max-w-xs">Select a customer and click "Run Full Pipeline" to watch all 7 agents execute in sequence.</p>
+                <p className="text-lg font-bold text-slate-600">Pipeline Idle</p>
+                <p className="text-sm text-slate-500 max-w-xs">Select a customer and click "Run Full Pipeline" to watch all 7 agents execute in sequence.</p>
               </div>
             ) : (
-              <div className="space-y-0 overflow-y-auto max-h-[calc(100vh-200px)] pr-1">
+              <div className="space-y-0 overflow-y-auto max-h-[calc(100vh-200px)] pr-2">
                 {PIPELINE_NODES.map((node, i) => (
                   <NodeResultCard
                     key={node.key}
@@ -322,9 +338,17 @@ const Agents: React.FC = () => {
 
                 {/* Compliance executive summary */}
                 {result.compliance_report?.executive_summary && (
-                  <div className="mt-4 p-4 bg-teal-50 border border-teal-100 rounded-2xl">
-                    <p className="text-xs font-bold text-teal-600 uppercase tracking-wider mb-2">📋 Executive Summary</p>
-                    <p className="text-sm text-slate-700 leading-relaxed">{result.compliance_report.executive_summary}</p>
+                  <div className="mt-6 p-6 bg-gradient-to-br from-teal-50 to-emerald-50 border border-teal-100 rounded-3xl shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                      <FileCheck className="w-5 h-5 text-teal-600" />
+                      <p className="text-sm font-bold text-teal-800 uppercase tracking-wider">Executive Summary</p>
+                    </div>
+                    <p className="text-slate-700 leading-relaxed font-medium">{result.compliance_report.executive_summary}</p>
+                    {result.compliance_report.compliance_doc_url && (
+                      <a href={result.compliance_report.compliance_doc_url} target="_blank" rel="noreferrer" className="inline-block mt-4 text-sm font-bold text-teal-600 hover:text-teal-700 underline">
+                        View Full Report in Google Docs &rarr;
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
@@ -351,7 +375,7 @@ const Agents: React.FC = () => {
                   onChange={e => setSelectedCustomer(e.target.value)}
                 >
                   {customers.map(c => (
-                    <option key={c._id} value={c._id}>{c.name} — ${c.outstandingAmount || 0} overdue</option>
+                    <option key={c._id} value={c._id}>{c.name} — ₹{c.outstandingAmount || 0} overdue</option>
                   ))}
                 </select>
               </div>
@@ -398,7 +422,6 @@ const Agents: React.FC = () => {
                   {/* Intent */}
                   <div className="w-full max-w-sm bg-white rounded-xl p-4 shadow-md border-2 border-blue-500">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="bg-blue-500 text-white p-1 rounded-md text-xs">🧠</span>
                       <p className="text-xs font-bold text-blue-600 uppercase">Intent Detection</p>
                     </div>
                     <p className="text-sm font-bold text-slate-800">{quickResult.intent?.category}</p>
@@ -409,7 +432,6 @@ const Agents: React.FC = () => {
                   {/* Sentiment */}
                   <div className={`w-full max-w-sm bg-white rounded-xl p-4 shadow-md border-2 ${quickResult.sentiment?.shouldEscalate ? 'border-red-500' : 'border-orange-400'}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className={`${quickResult.sentiment?.shouldEscalate ? 'bg-red-500' : 'bg-orange-400'} text-white p-1 rounded-md text-xs`}>❤️</span>
                       <p className={`text-xs font-bold uppercase ${quickResult.sentiment?.shouldEscalate ? 'text-red-500' : 'text-orange-500'}`}>Sentiment Analysis</p>
                     </div>
                     <p className="text-sm font-bold text-slate-800">{quickResult.sentiment?.category}</p>
@@ -422,7 +444,6 @@ const Agents: React.FC = () => {
                   {/* Resolution */}
                   <div className="w-full max-w-sm bg-white rounded-xl p-4 shadow-md border-2 border-green-500">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="bg-green-500 text-white p-1 rounded-md text-xs">⚖️</span>
                       <p className="text-xs font-bold text-green-600 uppercase">Resolution Logic</p>
                     </div>
                     <p className="text-sm font-bold text-slate-800">{quickResult.resolution?.recommendedAction}</p>
@@ -434,6 +455,119 @@ const Agents: React.FC = () => {
           </div>
         </div>
       )}
+
+      {activeTab === 'history' && (
+        <div className="bg-white rounded-3xl p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-2xl font-bold text-gen-textDark mb-1">Pipeline Audit History</h2>
+              <p className="text-sm text-gen-textLight">View past AI pipeline runs and detailed technical logs.</p>
+            </div>
+            <button
+              onClick={() => {
+                setHistoryLoading(true);
+                api.get('/agents/logs').then(r => setHistoryLogs(r.data.logs || [])).finally(() => setHistoryLoading(false));
+              }}
+              className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors"
+            >
+              <RefreshCw className={`w-5 h-5 ${historyLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {historyLoading && historyLogs.length === 0 ? (
+            <div className="py-20 text-center text-slate-400 flex flex-col items-center">
+              <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-500 rounded-full animate-spin mb-4" />
+              Loading history...
+            </div>
+          ) : historyLogs.length === 0 ? (
+            <div className="py-20 text-center text-slate-400 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+              No pipeline history found. Run a pipeline to see logs here.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {historyLogs.filter(log => log.agentName === "Pipeline Run" || log.agentName === "Communication Log").map((log, index) => {
+                const customerId = log.requestDetails?.customer_id || log.requestDetails?.customerId;
+                const cust = customers.find(c => c._id === customerId);
+                const summary = log.responseDetails?.summary || {};
+                const executiveSummary = log.responseDetails?.executive_summary;
+                
+                // For Communication Logs
+                const isCommLog = log.agentName === "Communication Log";
+                const analysis = log.responseDetails || {};
+                
+                return (
+                  <div key={log.id} className={`border rounded-2xl overflow-hidden ${isCommLog ? 'border-blue-200 bg-blue-50/20' : 'border-slate-200 bg-white'}`}>
+                    <div className={`p-5 flex flex-wrap items-center justify-between gap-4 ${isCommLog ? 'bg-blue-50/50' : 'bg-slate-50'}`}>
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${log.status === 'Success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {log.agentName}
+                          </span>
+                          <span className="font-bold text-slate-800 text-lg">
+                            {summary.customer || cust?.name || 'Unknown Customer'}
+                          </span>
+                          <span className="text-slate-400 text-sm font-mono">
+                            {new Date(log.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        {!isCommLog ? (
+                          <p className="text-sm text-slate-500 font-medium">
+                            {summary.channel_used && `Channel: ${summary.channel_used} • `}
+                            {summary.payment_plan && `Plan: ${summary.payment_plan} • `}
+                            {summary.priority && `Priority: ${summary.priority}`}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-blue-600 font-medium">
+                            Analyzed incoming customer message
+                          </p>
+                        )}
+                      </div>
+                      
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Run Duration</span>
+                        <span className="font-mono text-slate-700">{log.durationMs ? (log.durationMs / 1000).toFixed(2) + 's' : 'N/A'}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-6 border-t border-slate-100">
+                      {!isCommLog ? (
+                        executiveSummary ? (
+                          <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                            <p className="text-xs font-bold text-teal-600 uppercase tracking-wider mb-2">AI Executive Summary</p>
+                            <p className="text-sm text-slate-700 leading-relaxed font-medium">{executiveSummary}</p>
+                          </div>
+                        ) : (
+                          <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 text-center">
+                            <p className="text-sm text-slate-500 italic">No summary generated for this run.</p>
+                          </div>
+                        )
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                            <p className="text-xs font-bold text-blue-500 uppercase mb-1">Intent</p>
+                            <p className="text-sm font-bold text-slate-800">{analysis.intent?.category}</p>
+                          </div>
+                          <div className={`bg-white p-4 rounded-xl border shadow-sm ${analysis.sentiment?.shouldEscalate ? 'border-red-200' : 'border-orange-100'}`}>
+                            <p className={`text-xs font-bold uppercase mb-1 ${analysis.sentiment?.shouldEscalate ? 'text-red-500' : 'text-orange-500'}`}>Sentiment</p>
+                            <p className="text-sm font-bold text-slate-800">{analysis.sentiment?.category}</p>
+                            {analysis.sentiment?.shouldEscalate && <p className="text-xs font-bold text-red-600 mt-1">🚨 Escalated to Officer</p>}
+                          </div>
+                          <div className="bg-white p-4 rounded-xl border border-green-100 shadow-sm">
+                            <p className="text-xs font-bold text-green-500 uppercase mb-1">Resolution Plan</p>
+                            <p className="text-sm font-bold text-slate-800">{analysis.resolution?.recommendedAction}</p>
+                            <p className="text-xs text-slate-500 mt-1">{analysis.resolution?.paymentSchedule}</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
     </div>
   );
 };

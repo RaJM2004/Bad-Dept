@@ -33,10 +33,19 @@ const Inbox = () => {
       const emailMatch = email.from.match(/<(.+)>/);
       const senderEmail = emailMatch ? emailMatch[1] : email.from;
 
+      // Get a valid customer ID
+      const custRes = await api.get('/customers');
+      // Try to match the customer by email or name, fallback to the first one for demo purposes
+      const matchedCustomer = custRes.data.find((c: any) => 
+        (c.email && c.email.toLowerCase() === senderEmail.toLowerCase()) || 
+        email.from.toLowerCase().includes(c.name.toLowerCase())
+      );
+      const validCustomerId = matchedCustomer ? matchedCustomer._id : custRes.data[0]?._id;
+
       // We will hit the communication log processing endpoint
       // This will automatically run Intent, Sentiment, and Resolution agents
-      const res = await api.post('/agents/communication', {
-        customerId: "mock_id_we_would_look_up", // In a real app we'd look up the customer by email first
+      const res = await api.post('/agents/log', {
+        customerId: validCustomerId,
         sender: senderEmail,
         messageType: 'Email',
         content: email.subject + " " + email.snippet

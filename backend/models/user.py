@@ -15,11 +15,14 @@ class UserCreate(UserBase):
     google_id: Optional[str] = None
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
 
 
 class UserResponse(UserBase):
     id: str
     has_google_integration: bool = False
+    has_razorpay_integration: bool = False
     created_at: Optional[datetime] = None
 
     class Config:

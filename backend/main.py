@@ -37,9 +37,12 @@ async def lifespan(app: FastAPI):
     # Startup
     await connect_db()
     get_groq_client()  # Pre-warm Groq client
+    from cron_jobs import start_scheduler, stop_scheduler
+    start_scheduler()
     await seed_database()
     yield
     # Shutdown
+    stop_scheduler()
     await close_db()
 
 

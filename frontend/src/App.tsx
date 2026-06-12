@@ -14,6 +14,7 @@ import CommunicationLogs from './pages/CommunicationLogs';
 import Reports from './pages/Reports';
 import RepaymentPlans from './pages/RepaymentPlans';
 import DisputeManagement from './pages/DisputeManagement';
+import Integrations from './pages/Integrations';
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
               <Route path="repayment-plans" element={<RepaymentPlans />} />
               <Route path="dispute-management" element={<DisputeManagement />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="integrations" element={<Integrations />} />
               <Route path="coming-soon" element={<ComingSoon />} />
             </Route>
           </Routes>
